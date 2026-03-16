@@ -3,10 +3,14 @@ FROM node:20-alpine AS deps
 
 WORKDIR /app
 
-COPY package*.json ./
-RUN npm ci --omit=dev && \
+COPY package.json yarn.lock ./
+COPY apps/api/package.json ./apps/api/
+COPY libs/database/package.json ./libs/database/
+COPY libs/commons/package.json ./libs/commons/
+
+RUN yarn install --frozen-lockfile --production && \
     cp -R node_modules /prod_node_modules && \
-    npm ci
+    yarn install --frozen-lockfile
 
 # ── Build stage (builds all apps) ──
 FROM node:20-alpine AS builder
@@ -14,7 +18,7 @@ FROM node:20-alpine AS builder
 WORKDIR /app
 
 COPY --from=deps /app/node_modules ./node_modules
-COPY package*.json ./
+COPY package.json yarn.lock ./
 COPY nest-cli.json tsconfig.json ./
 COPY apps ./apps
 COPY libs ./libs
