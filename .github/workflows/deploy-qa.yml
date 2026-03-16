@@ -1,0 +1,74 @@
+name: Deploy QA - API
+
+on:
+  push:
+    branches: [dev]
+    paths:
+      - "apps/api/**"
+      - "libs/**"
+      - "Dockerfile"
+      - "package.json"
+      - "yarn.lock"
+      - ".github/workflows/deploy-qa.yml"
+
+env:
+  AWS_REGION: us-east-1
+  ECR_REPOSITORY: nest-js-boiler-plate-qa
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check required secrets
+        id: check-secrets
+        run: |
+          missing=""
+          if [ -z "${{ secrets.QA_AWS_ACCESS_KEY_ID }}" ]; then missing="$missing QA_AWS_ACCESS_KEY_ID"; fi
+          if [ -z "${{ secrets.QA_AWS_SECRET_ACCESS_KEY }}" ]; then missing="$missing QA_AWS_SECRET_ACCESS_KEY"; fi
+          if [ -z "${{ secrets.QA_ECS_CLUSTER }}" ]; then missing="$missing QA_ECS_CLUSTER"; fi
+          if [ -z "${{ secrets.QA_ECS_SERVICE }}" ]; then missing="$missing QA_ECS_SERVICE"; fi
+
+          if [ -n "$missing" ]; then
+            echo "Skipping deploy — missing secrets:$missing"
+            echo "can_deploy=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "All secrets present, proceeding with deploy"
+            echo "can_deploy=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Configure AWS credentials
+        if: steps.check-secrets.outputs.can_deploy == 'true'
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.QA_AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.QA_AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        if: steps.check-secrets.outputs.can_deploy == 'true'
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build, tag, and push Docker image
+        if: steps.check-secrets.outputs.can_deploy == 'true'
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          DOCKER_BUILDKIT=1 docker build \
+            --target api \
+            -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG \
+            -t $ECR_REGISTRY/$ECR_REPOSITORY:latest .
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
+
+      - name: Deploy to ECS
+        if: steps.check-secrets.outputs.can_deploy == 'true'
+        run: |
+          aws ecs update-service \
+            --cluster ${{ secrets.QA_ECS_CLUSTER }} \
+            --service ${{ secrets.QA_ECS_SERVICE }} \
+            --force-new-deployment

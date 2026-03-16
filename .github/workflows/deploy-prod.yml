@@ -1,33 +1,23 @@
-name: Build & Deploy to AWS
+name: Deploy Prod - API
 
 on:
   push:
     branches: [main]
-  pull_request:
-    branches: [main]
+    paths:
+      - "apps/api/**"
+      - "libs/**"
+      - "Dockerfile"
+      - "package.json"
+      - "yarn.lock"
+      - ".github/workflows/deploy-prod.yml"
 
 env:
   AWS_REGION: us-east-1
   ECR_REPOSITORY: nest-js-boiler-plate
 
 jobs:
-  build:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: npm
-
-      - run: npm ci
-      - run: npx nest build api
-
   deploy:
-    needs: build
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
 
     steps:
       - uses: actions/checkout@v4
@@ -42,10 +32,10 @@ jobs:
           if [ -z "${{ secrets.ECS_SERVICE }}" ]; then missing="$missing ECS_SERVICE"; fi
 
           if [ -n "$missing" ]; then
-            echo "⚠️ Skipping deploy — missing secrets:$missing"
+            echo "Skipping deploy — missing secrets:$missing"
             echo "can_deploy=false" >> "$GITHUB_OUTPUT"
           else
-            echo "✅ All secrets present, proceeding with deploy"
+            echo "All secrets present, proceeding with deploy"
             echo "can_deploy=true" >> "$GITHUB_OUTPUT"
           fi
 
@@ -62,13 +52,16 @@ jobs:
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
 
-      - name: Build, tag, and push Docker image to ECR
+      - name: Build, tag, and push Docker image
         if: steps.check-secrets.outputs.can_deploy == 'true'
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
           IMAGE_TAG: ${{ github.sha }}
         run: |
-          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG -t $ECR_REGISTRY/$ECR_REPOSITORY:latest .
+          DOCKER_BUILDKIT=1 docker build \
+            --target api \
+            -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG \
+            -t $ECR_REGISTRY/$ECR_REPOSITORY:latest .
           docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
           docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
 
