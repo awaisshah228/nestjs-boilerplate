@@ -1,0 +1,11 @@
+{
+  "name": "@libs/database",
+  "version": "0.0.1",
+  "description": "Database library — TypeORM, entities, migrations",
+  "private": true,
+  "scripts": {
+    "test": "../../node_modules/jest/bin/jest.js --maxWorkers=50%"
+  },
+  "dependencies": {},
+  "license": "MIT"
+}

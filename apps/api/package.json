@@ -1,0 +1,11 @@
+{
+  "name": "@apps/api",
+  "version": "0.0.1",
+  "description": "REST API application",
+  "private": true,
+  "scripts": {
+    "test": "../../node_modules/jest/bin/jest.js --maxWorkers=50%"
+  },
+  "dependencies": {},
+  "license": "MIT"
+}

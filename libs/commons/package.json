@@ -1,0 +1,11 @@
+{
+  "name": "@libs/commons",
+  "version": "0.0.1",
+  "description": "Shared utilities — filters, logger, throttle",
+  "private": true,
+  "scripts": {
+    "test": "../../node_modules/jest/bin/jest.js --maxWorkers=50%"
+  },
+  "dependencies": {},
+  "license": "MIT"
+}

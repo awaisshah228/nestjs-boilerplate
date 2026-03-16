@@ -1,0 +1,81 @@
+name: Build & Deploy to AWS
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  AWS_REGION: us-east-1
+  ECR_REPOSITORY: nest-js-boiler-plate
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+      - run: npx nest build api
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check required secrets
+        id: check-secrets
+        run: |
+          missing=""
+          if [ -z "${{ secrets.AWS_ACCESS_KEY_ID }}" ]; then missing="$missing AWS_ACCESS_KEY_ID"; fi
+          if [ -z "${{ secrets.AWS_SECRET_ACCESS_KEY }}" ]; then missing="$missing AWS_SECRET_ACCESS_KEY"; fi
+          if [ -z "${{ secrets.ECS_CLUSTER }}" ]; then missing="$missing ECS_CLUSTER"; fi
+          if [ -z "${{ secrets.ECS_SERVICE }}" ]; then missing="$missing ECS_SERVICE"; fi
+
+          if [ -n "$missing" ]; then
+            echo "⚠️ Skipping deploy — missing secrets:$missing"
+            echo "can_deploy=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "✅ All secrets present, proceeding with deploy"
+            echo "can_deploy=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Configure AWS credentials
+        if: steps.check-secrets.outputs.can_deploy == 'true'
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        if: steps.check-secrets.outputs.can_deploy == 'true'
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build, tag, and push Docker image to ECR
+        if: steps.check-secrets.outputs.can_deploy == 'true'
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG -t $ECR_REGISTRY/$ECR_REPOSITORY:latest .
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
+
+      - name: Deploy to ECS
+        if: steps.check-secrets.outputs.can_deploy == 'true'
+        run: |
+          aws ecs update-service \
+            --cluster ${{ secrets.ECS_CLUSTER }} \
+            --service ${{ secrets.ECS_SERVICE }} \
+            --force-new-deployment
